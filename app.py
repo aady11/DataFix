@@ -1,8 +1,6 @@
 import streamlit as st
 import pandas as pd
 from io import BytesIO
-import plotly.express as px
-import plotly.graph_objects as go
 
 # ==========================================
 # PAGE CONFIGURATION
@@ -496,51 +494,9 @@ st.markdown("""
         box-shadow: 0 4px 12px rgba(102,126,234,0.3);
     }
     
-    /* Loading Animation */
-    @keyframes shimmer {
-        0% { background-position: -1000px 0; }
-        100% { background-position: 1000px 0; }
-    }
-    
-    .loading {
-        animation: shimmer 2s infinite;
-        background: linear-gradient(to right, #f6f7f8 0%, #edeef1 20%, #f6f7f8 40%, #f6f7f8 100%);
-        background-size: 1000px 100%;
-    }
-    
     /* Checkbox */
     .stCheckbox {
         font-weight: 600;
-    }
-    
-    /* Number Input */
-    .stNumberInput input {
-        border-radius: 8px;
-        border: 2px solid #dee2e6;
-        font-weight: 600;
-    }
-    
-    .stNumberInput input:focus {
-        border-color: #667eea;
-        box-shadow: 0 0 0 3px rgba(102,126,234,0.1);
-    }
-    
-    /* Select Box */
-    .stSelectbox > div > div {
-        border-radius: 8px;
-        border: 2px solid #dee2e6;
-    }
-    
-    /* Text Input */
-    .stTextInput input {
-        border-radius: 8px;
-        border: 2px solid #dee2e6;
-        font-weight: 600;
-    }
-    
-    .stTextInput input:focus {
-        border-color: #667eea;
-        box-shadow: 0 0 0 3px rgba(102,126,234,0.1);
     }
     </style>
 """, unsafe_allow_html=True)
@@ -558,47 +514,6 @@ def remove_duplicates(df, subset_cols=None):
     col_info = "all columns" if subset_cols is None else f"selected columns"
     log = f"{n_duplicates} duplicate row(s) removed (checked {col_info})."
     return cleaned_df.reset_index(drop=True), log, n_duplicates
-
-def create_comparison_chart(before_count, after_count):
-    """Create a comparison chart"""
-    fig = go.Figure()
-    
-    fig.add_trace(go.Bar(
-        name='Before',
-        x=['Rows'],
-        y=[before_count],
-        marker_color='#ef4444',
-        text=[f'{before_count:,}'],
-        textposition='auto',
-    ))
-    
-    fig.add_trace(go.Bar(
-        name='After',
-        x=['Rows'],
-        y=[after_count],
-        marker_color='#10b981',
-        text=[f'{after_count:,}'],
-        textposition='auto',
-    ))
-    
-    fig.update_layout(
-        barmode='group',
-        height=300,
-        margin=dict(l=20, r=20, t=40, b=20),
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)',
-        font=dict(family="Inter", size=14, color="#495057"),
-        showlegend=True,
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="right",
-            x=1
-        )
-    )
-    
-    return fig
 
 # ==========================================
 # SIDEBAR
@@ -691,7 +606,7 @@ if "df" not in st.session_state:
             <h1 class='hero-title'>DataFix Pro</h1>
             <p class='hero-subtitle'>Transform messy data into clean, actionable insights</p>
             <div style='margin-top: 2rem; color: #6c757d; font-size: 1.1rem;'>
-                👆 Upload a file to get started
+                👆 Upload a file in the sidebar to get started
             </div>
         </div>
     """, unsafe_allow_html=True)
@@ -876,44 +791,17 @@ elif station == "🔍 Dedupe Master":
     # Results Section
     st.markdown("<div class='section-header'>📈 Results & Analytics</div>", unsafe_allow_html=True)
     
-    col1, col2 = st.columns([1, 2])
+    col1, col2, col3 = st.columns(3)
     
     with col1:
-        st.markdown("<div class='content-card'>", unsafe_allow_html=True)
-        
-        # Stats
-        pct_removed = (n_removed / df.shape[0] * 100) if df.shape[0] > 0 else 0
-        
-        st.markdown(f"""
-            <div style='text-align: center; padding: 1rem;'>
-                <div style='font-size: 4rem; margin-bottom: 1rem;'>
-                    {'🎉' if n_removed > 0 else '✅'}
-                </div>
-                <h2 style='margin: 0; color: #212529;'>{n_removed:,}</h2>
-                <p style='color: #6c757d; margin: 0.5rem 0;'>Rows Removed</p>
-                <div class='stats-badge' style='margin-top: 1rem;'>
-                    {pct_removed:.2f}% of total
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-        
-        st.markdown("</div>", unsafe_allow_html=True)
-        
-        # Metrics
-        st.markdown("<div style='margin: 1rem 0;'></div>", unsafe_allow_html=True)
         st.metric("Original Rows", f"{df.shape[0]:,}")
+    with col2:
         st.metric("Cleaned Rows", f"{cleaned_df.shape[0]:,}", 
                  delta=f"-{n_removed:,}" if n_removed > 0 else "No change",
                  delta_color="normal")
-    
-    with col2:
-        st.markdown("<div class='content-card'>", unsafe_allow_html=True)
-        
-        # Chart
-        fig = create_comparison_chart(df.shape[0], cleaned_df.shape[0])
-        st.plotly_chart(fig, use_container_width=True)
-        
-        st.markdown("</div>", unsafe_allow_html=True)
+    with col3:
+        pct_removed = (n_removed / df.shape[0] * 100) if df.shape[0] > 0 else 0
+        st.metric("Removed", f"{n_removed:,} ({pct_removed:.1f}%)")
     
     st.markdown("<div style='margin: 2rem 0;'></div>", unsafe_allow_html=True)
     
@@ -958,7 +846,7 @@ elif station == "🔍 Dedupe Master":
         csv_bytes = csv_buffer.getvalue()
         
         base_name = st.session_state.filename.rsplit('.', 1)[0]
-        output_filename = f"{base_name}_cleaned_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        output_filename = f"{base_name}_cleaned.csv"
         
         st.download_button(
             label=f"📥 Download Cleaned Data ({cleaned_df.shape[0]:,} rows)",
@@ -979,7 +867,7 @@ elif station == "🔍 Dedupe Master":
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ==========================================
-# STATION 2: TEXT CLEANER
+# OTHER STATIONS
 # ==========================================
 
 elif station == "✨ Text Cleaner":
@@ -1010,10 +898,6 @@ elif station == "✨ Text Cleaner":
         </div>
     """, unsafe_allow_html=True)
 
-# ==========================================
-# STATION 3: FILE MERGER
-# ==========================================
-
 elif station == "🔗 File Merger":
     st.markdown("""
         <div class='content-card' style='background: linear-gradient(135deg, rgba(79,172,254,0.1) 0%, rgba(0,242,254,0.1) 100%); border: 2px solid rgba(79,172,254,0.3);'>
@@ -1041,10 +925,6 @@ elif station == "🔗 File Merger":
             </div>
         </div>
     """, unsafe_allow_html=True)
-
-# ==========================================
-# STATION 4: DATA INSIGHTS
-# ==========================================
 
 elif station == "📊 Data Insights":
     df = st.session_state.df
@@ -1118,3 +998,4 @@ elif station == "📊 Data Insights":
     with tab3:
         sample_size = min(20, len(df))
         st.dataframe(df.sample(n=sample_size), use_container_width=True, height=500)
+        
