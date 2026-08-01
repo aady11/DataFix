@@ -1,661 +1,456 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 from io import BytesIO
-import re
 
 # ==========================================
-# PAGE CONFIGURATION
+# TESTED LOGIC FROM COLAB (The Engine)
 # ==========================================
-st.set_page_config(
-    page_title="DataFix Pro",
-    page_icon="🎯",
-    layout="wide",
-    initial_sidebar_state="expanded"
+
+def remove_duplicates(df, subset_cols=None):
+    n_duplicates = df.duplicated(subset=subset_cols).sum()
+    if n_duplicates == 0:
+        return df.copy(), "No duplicates found.", 0
+    cleaned_df = df.drop_duplicates(subset=subset_cols, keep="first")
+    col_info = "all columns" if subset_cols is None else f"columns: {subset_cols}"
+    log = f"{n_duplicates} duplicate row(s) removed (checked {col_info})."
+    return cleaned_df.reset_index(drop=True), log, n_duplicates
+
+def clean_text(df, columns):
+    cleaned_df = df.copy()
+    total_changes = 0
+    for col in columns:
+        original_col = cleaned_df[col].astype(str)
+        cleaned_col = original_col.str.strip()
+        cleaned_col = cleaned_col.str.replace(r'\s+', ' ', regex=True)
+        cleaned_col = cleaned_col.str.title()
+        changes_in_col = (original_col != cleaned_col).sum()
+        total_changes += changes_in_col
+        cleaned_df[col] = cleaned_col
+    if total_changes == 0:
+        log = "Text cleaning: No changes needed."
+    else:
+        log = f"Text cleaned: {total_changes} cell(s) updated across {len(columns)} column(s)."
+    return cleaned_df, log
+
+def clean_dates(df, columns, output_format='%Y-%m-%d', dayfirst=False):
+    cleaned_df = df.copy()
+    total_changes = 0
+    for col in columns:
+        original_col = cleaned_df[col].astype(str).str.strip()
+        parsed = pd.to_datetime(cleaned_df[col], errors='coerce', format='mixed', dayfirst=dayfirst)
+        formatted = parsed.dt.strftime(output_format)
+        cleaned_col = original_col.copy()
+        valid_mask = parsed.notna()
+        cleaned_col[valid_mask] = formatted[valid_mask]
+        changes_in_col = (original_col != cleaned_col).sum()
+        total_changes += changes_in_col
+        cleaned_df[col] = cleaned_col
+    if total_changes == 0:
+        log = "Date cleaning: No changes needed."
+    else:
+        log = f"Date cleaned: {total_changes} cell(s) updated across {len(columns)} column(s)."
+    return cleaned_df, log
+
+def merge_files(df_left, df_right, left_on, right_on, how="outer"):
+    merged_df = pd.merge(df_left, df_right, left_on=left_on, right_on=right_on, how=how, indicator=True)
+    status_map = {"both": "Matched", "left_only": "Left Only", "right_only": "Right Only"}
+    merged_df["match_status"] = merged_df["_merge"].map(status_map).astype(str)
+    merged_df.drop(columns=["_merge"], inplace=True)
+    counts = merged_df["match_status"].value_counts().to_dict()
+    matched_count = counts.get("Matched", 0)
+    left_only_count = counts.get("Left Only", 0)
+    right_only_count = counts.get("Right Only", 0)
+    log = (f"Merge complete ({how.upper()} join): {len(merged_df)} total rows | "
+           f"{matched_count} matched | {left_only_count} left only | {right_only_count} right only")
+    return merged_df, log
+
+def generate_summary_report(df, group_col, numeric_cols=None):
+    if numeric_cols is None:
+        numeric_cols = df.select_dtypes(include='number').columns.drop(group_col, errors='ignore').tolist()
+    if not numeric_cols:
+        return df.copy(), "No numeric columns found to summarize."
+    grouped = df.groupby(group_col)[numeric_cols].agg(['count', 'sum', 'mean'])
+    grouped.columns = [f"{col}_{stat}" for col, stat in grouped.columns]
+    grouped.reset_index(inplace=True)
+    totals = {col: "" for col in grouped.columns}
+    totals[group_col] = "TOTAL"
+    for col in grouped.columns:
+        if col.endswith("_count") or col.endswith("_sum"):
+            totals[col] = grouped[col].sum()
+        elif col.endswith("_mean"):
+            totals[col] = grouped[col].sum() / max(len(grouped), 1)
+    summary_df = pd.concat([grouped, pd.DataFrame([totals])], ignore_index=True)
+    log = f"Summary report generated: {len(grouped)} group(s) by '{group_col}', {len(numeric_cols)} numeric column(s) summarized."
+    return summary_df, log
+
+# ==========================================
+# PREMIUM WORKBENCH CSS
+# ==========================================
+def load_css():
+    st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+    
+    .stApp { background-color: #FAF9F6; }
+    .block-container { padding-top: 3rem; padding-bottom: 2rem; max-width: 1200px; }
+
+    /* --- Sidebar --- */
+    [data-testid="stSidebar"] {
+        background-color: #F0EDE8 !important;
+        border-right: 1px solid #E0DCD5 !important;
+    }
+    [data-testid="stSidebar"] * { font-family: 'Inter', sans-serif !important; }
+
+    /* --- Station Radio Buttons --- */
+    .stRadio > div { gap: 0.5rem; }
+    .stRadio label {
+        font-family: 'Inter', sans-serif !important;
+        border: 1px solid #E0DCD5;
+        border-radius: 8px !important;
+        padding: 0.75rem 1rem !important;
+        transition: all 0.2s ease;
+        background-color: #FFFFFF;
+        color: #5A5A5A !important;
+        font-weight: 500 !important;
+    }
+    .stRadio label:hover {
+        border-color: #7A9E7E;
+        color: #2D2D2D !important;
+    }
+    .stRadio div[data-baseweb="radio-group"] div[aria-checked="true"] label {
+        background-color: #7A9E7E !important;
+        border-color: #7A9E7E !important;
+        color: #FFFFFF !important;
+        font-weight: 600 !important;
+        box-shadow: 0 2px 4px rgba(122, 158, 126, 0.2);
+    }
+
+    /* --- Workbench Cards --- */
+    .workbench-card {
+        background-color: #FFFFFF;
+        border: 1px solid #E0DCD5;
+        border-radius: 12px;
+        padding: 1.5rem;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.04), 0 2px 4px -1px rgba(0, 0, 0, 0.02);
+        margin-bottom: 1rem;
+    }
+
+    /* --- Live Row Counter Typography --- */
+    [data-testid="stMetricValue"] {
+        font-family: 'JetBrains Mono', monospace !important;
+        font-size: 2rem !important;
+        font-weight: 700 !important;
+        color: #2D2D2D !important;
+    }
+    [data-testid="stMetricLabel"] {
+        font-family: 'Inter', sans-serif !important;
+        font-size: 0.8rem !important;
+        font-weight: 600 !important;
+        color: #7A9E7E !important;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    [data-testid="stMetricDeltaNegative"] {
+        color: #C45B28 !important; /* Clay/Rust */
+        font-family: 'JetBrains Mono', monospace !important;
+    }
+
+    /* --- Data Tables --- */
+    .stDataFrame {
+        border: 1px solid #E0DCD5;
+        border-radius: 8px;
+    }
+    .stDataFrame table {
+        font-family: 'JetBrains Mono', monospace !important;
+        font-size: 0.85rem !important;
+    }
+
+    /* --- Buttons --- */
+    .stButton > button, .stDownloadButton > button {
+        background-color: #7A9E7E !important;
+        color: #FFFFFF !important;
+        border: none !important;
+        border-radius: 8px !important;
+        padding: 0.5rem 1.5rem !important;
+        font-weight: 600 !important;
+        font-family: 'Inter', sans-serif !important;
+        transition: all 0.2s ease;
+    }
+    .stButton > button:hover, .stDownloadButton > button:hover {
+        background-color: #6B8E6F !important;
+        box-shadow: 0 4px 6px rgba(122, 158, 126, 0.3) !important;
+    }
+    
+    /* --- Custom Header --- */
+    .station-header {
+        font-family: 'Inter', sans-serif;
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: #2D2D2D;
+        margin-bottom: 1.5rem;
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+    .station-header span {
+        color: #7A9E7E;
+        font-size: 1.8rem;
+    }
+    
+    /* --- Arrow for Before/After --- */
+    .arrow-column {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 2rem;
+        color: #7A9E7E;
+        font-weight: bold;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+# ==========================================
+# APP CONFIG & LAYOUT
+# ==========================================
+
+st.set_page_config(page_title="DataFix", layout="wide")
+load_css()
+
+# --- Sidebar ---
+st.sidebar.title("🧹 DataFix")
+st.sidebar.caption("A workbench for tidying messy data.")
+
+station = st.sidebar.radio(
+    "Choose a station:",
+    ["1. Dedupe", "2. Clean Text & Dates", "3. Merge Files", "4. Summary Report"],
+    label_visibility="collapsed"
 )
 
-# ==========================================
-# ADVANCED CSS STYLING
-# ==========================================
-st.markdown("""
-    <style>
-    /* Import Google Fonts */
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap');
-    
-    /* Hide Streamlit Elements */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-    .stDeployButton {display: none;}
-    
-    /* Global Styles */
-    * {
-        font-family: 'Inter', sans-serif;
-    }
-    
-    html, body, [data-testid="stAppViewContainer"] {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        background-attachment: fixed;
-    }
-    
-    /* Main Container */
-    .block-container {
-        padding: 2rem 3rem !important;
-        max-width: 1400px;
-    }
-    
-    /* Sidebar Styling */
-    [data-testid="stSidebar"] {
-        background: rgba(255, 255, 255, 0.98);
-        backdrop-filter: blur(10px);
-        border-right: 1px solid rgba(0,0,0,0.05);
-        box-shadow: 4px 0 24px rgba(0,0,0,0.08);
-    }
-    
-    [data-testid="stSidebar"] > div:first-child {
-        padding: 2rem 1.5rem;
-    }
-    
-    /* Station Selection Styling */
-    .stRadio > label {
-        background: transparent !important;
-        padding: 0 !important;
-    }
-    
-    .stRadio [role="radiogroup"] {
-        gap: 0.5rem;
-    }
-    
-    .stRadio [role="radiogroup"] label {
-        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%) !important;
-        border: 2px solid #dee2e6;
-        border-radius: 12px !important;
-        padding: 1rem 1.25rem !important;
-        cursor: pointer;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        font-weight: 600;
-        color: #495057;
-        position: relative;
-        overflow: hidden;
-    }
-    
-    .stRadio [role="radiogroup"] label:hover {
-        transform: translateX(4px);
-        border-color: #667eea;
-        background: linear-gradient(135deg, #fff 0%, #f8f9ff 100%) !important;
-        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
-    }
-    
-    .stRadio [role="radiogroup"] label[data-checked="true"] {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-        border-color: #667eea;
-        color: white !important;
-        box-shadow: 0 8px 16px rgba(102, 126, 234, 0.3);
-        transform: translateX(8px);
-    }
-    
-    /* Content Cards */
-    .content-card {
-        background: rgba(255, 255, 255, 0.98);
-        border-radius: 20px;
-        padding: 2.5rem;
-        box-shadow: 0 20px 60px rgba(0,0,0,0.12);
-        backdrop-filter: blur(10px);
-        border: 1px solid rgba(255,255,255,0.8);
-        margin-bottom: 2rem;
-        animation: slideUp 0.5s ease-out;
-    }
-    
-    @keyframes slideUp {
-        from { opacity: 0; transform: translateY(30px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-    
-    /* Hero Section */
-    .hero-section {
-        background: rgba(255, 255, 255, 0.98);
-        border-radius: 24px;
-        padding: 4rem 3rem;
-        text-align: center;
-        box-shadow: 0 30px 90px rgba(0,0,0,0.15);
-        border: 1px solid rgba(255,255,255,0.9);
-        margin-bottom: 3rem;
-        position: relative;
-        overflow: hidden;
-    }
-    
-    .hero-title {
-        font-size: 4rem;
-        font-weight: 800;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        margin-bottom: 1rem;
-        position: relative;
-    }
-    
-    .hero-subtitle {
-        font-size: 1.3rem;
-        color: #6c757d;
-        font-weight: 400;
-        position: relative;
-    }
-    
-    /* Feature Cards Grid */
-    .feature-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        border-radius: 16px;
-        padding: 2rem;
-        text-align: center;
-        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-        cursor: pointer;
-        position: relative;
-        overflow: hidden;
-        height: 220px;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        align-items: center;
-    }
-    
-    .feature-card::before {
-        content: '';
-        position: absolute;
-        top: 0; left: 0; right: 0; bottom: 0;
-        background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0) 100%);
-        opacity: 0;
-        transition: opacity 0.4s ease;
-    }
-    
-    .feature-card:hover {
-        transform: translateY(-12px) scale(1.02);
-        box-shadow: 0 20px 40px rgba(102,126,234,0.4);
-    }
-    
-    .feature-card:hover::before { opacity: 1; }
-    
-    .feature-icon { font-size: 4rem; margin-bottom: 1rem; filter: drop-shadow(0 4px 8px rgba(0,0,0,0.2)); }
-    .feature-title { color: white; font-size: 1.5rem; font-weight: 700; margin: 0.5rem 0; }
-    .feature-description { color: rgba(255,255,255,0.9); font-size: 0.95rem; }
-    
-    /* Metrics */
-    [data-testid="stMetricValue"] { font-size: 2.5rem; font-weight: 800; color: #212529; }
-    [data-testid="stMetricLabel"] { font-size: 0.95rem; font-weight: 600; color: #6c757d; text-transform: uppercase; letter-spacing: 0.5px; }
-    div[data-testid="metric-container"] {
-        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-        padding: 1.5rem; border-radius: 16px; border: 2px solid #dee2e6;
-        transition: all 0.3s ease;
-    }
-    div[data-testid="metric-container"]:hover {
-        border-color: #667eea; box-shadow: 0 8px 24px rgba(102,126,234,0.15); transform: translateY(-4px);
-    }
-    
-    /* Buttons */
-    .stButton > button {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white; border: none; border-radius: 12px;
-        padding: 0.75rem 2.5rem; font-weight: 700; font-size: 1rem;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        box-shadow: 0 4px 16px rgba(102,126,234,0.3);
-        text-transform: uppercase; letter-spacing: 0.5px;
-    }
-    .stButton > button:hover { transform: translateY(-3px); box-shadow: 0 8px 24px rgba(102,126,234,0.5); }
-    
-    /* File Uploader */
-    [data-testid="stFileUploader"] {
-        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-        border-radius: 16px; padding: 2rem; border: 3px dashed #adb5bd;
-        transition: all 0.3s ease;
-    }
-    [data-testid="stFileUploader"]:hover { border-color: #667eea; background: linear-gradient(135deg, #fff 0%, #f8f9ff 100%); }
-    
-    /* Sidebar Logo Area */
-    .sidebar-logo { text-align: center; padding: 1.5rem 0 2rem 0; border-bottom: 2px solid #e9ecef; margin-bottom: 2rem; }
-    .sidebar-title { font-size: 2rem; font-weight: 800; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin: 0; }
-    .sidebar-subtitle { color: #6c757d; font-size: 0.85rem; margin-top: 0.25rem; font-weight: 500; }
-    
-    /* Section Headers */
-    .section-header {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-        font-size: 1.8rem; font-weight: 800; margin: 2rem 0 1rem 0;
-        display: flex; align-items: center; gap: 0.75rem;
-    }
-    
-    /* Tabs */
-    .stTabs [data-baseweb="tab-list"] { gap: 1rem; background: transparent; }
-    .stTabs [data-baseweb="tab"] { background: rgba(255,255,255,0.7); border-radius: 12px; padding: 0.75rem 1.5rem; font-weight: 600; border: 2px solid transparent; }
-    .stTabs [aria-selected="true"] { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
-    
-    /* DataFrames */
-    [data-testid="stDataFrame"] { border-radius: 12px; overflow: hidden; box-shadow: 0 4px 16px rgba(0,0,0,0.08); border: 1px solid #dee2e6; }
-    </style>
-""", unsafe_allow_html=True)
+# --- File Upload (Global) ---
+uploaded_file = st.sidebar.file_uploader(
+    "Upload a spreadsheet",
+    type=["csv", "xlsx"],
+    help="CSV or Excel files, up to 200MB"
+)
 
-# ==========================================
-# HELPER FUNCTIONS
-# ==========================================
-
-def load_file(file):
-    """Load CSV or Excel file"""
-    try:
-        if file.name.endswith(".csv"):
-            return pd.read_csv(file)
-        else:
-            return pd.read_excel(file, engine="openpyxl")
-    except Exception as e:
-        st.error(f"Error loading file: {str(e)}")
-        return None
-
-def remove_duplicates(df, subset_cols=None, case_insensitive=False, ignore_whitespace=False):
-    """Advanced duplicate removal"""
-    working_df = df.copy()
-    
-    # Pre-processing for comparison
-    if case_insensitive or ignore_whitespace:
-        # Create a temporary copy for comparison logic
-        compare_df = working_df.copy()
-        if subset_cols:
-            cols_to_process = subset_cols
-        else:
-            cols_to_process = working_df.select_dtypes(include=['object']).columns.tolist()
-            
-        for col in cols_to_process:
-            if col in compare_df.columns:
-                if ignore_whitespace:
-                    compare_df[col] = compare_df[col].astype(str).str.strip()
-                if case_insensitive:
-                    compare_df[col] = compare_df[col].astype(str).str.lower()
-        
-        # Find duplicates based on processed data
-        mask = compare_df.duplicated(subset=subset_cols, keep="first")
-        cleaned_df = working_df[~mask].reset_index(drop=True)
-        n_removed = len(working_df) - len(cleaned_df)
-        return cleaned_df, n_removed
+if uploaded_file is not None:
+    if uploaded_file.name.endswith(".csv"):
+        df = pd.read_csv(uploaded_file)
     else:
-        # Standard removal
-        n_duplicates = working_df.duplicated(subset=subset_cols).sum()
-        if n_duplicates == 0:
-            return working_df, 0
-        cleaned_df = working_df.drop_duplicates(subset=subset_cols, keep="first").reset_index(drop=True)
-        return cleaned_df, n_duplicates
+        df = pd.read_excel(uploaded_file, engine="openpyxl")
+    
+    st.session_state.df = df
+    st.session_state.filename = uploaded_file.name
 
 # ==========================================
-# SIDEBAR
+# STATION 1: DEDUPE
 # ==========================================
 
-with st.sidebar:
-    st.markdown("""
-        <div class='sidebar-logo'>
-            <div style='font-size: 3.5rem; margin-bottom: 0.5rem;'>🎯</div>
-            <h1 class='sidebar-title'>DataFix Pro</h1>
-            <p class='sidebar-subtitle'>Professional Data Cleaning</p>
-        </div>
-    """, unsafe_allow_html=True)
+if station == "1. Dedupe":
+    st.markdown('<div class="station-header"><span>🔍</span> Station 1: Remove Duplicates</div>', unsafe_allow_html=True)
     
-    station = st.radio(
-        "station_selector",
-        ["🔍 Dedupe Master", "✨ Text Cleaner", "🔗 File Merger", "📊 Data Insights"],
-        label_visibility="collapsed"
-    )
-    
-    st.markdown("<div style='margin: 2rem 0;'></div>", unsafe_allow_html=True)
-    
-    st.markdown("<h3 style='color: #495057; font-size: 1rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 1rem;'>📁 Upload Data</h3>", unsafe_allow_html=True)
-    
-    uploaded_file = st.file_uploader(
-        "Upload your file",
-        type=["csv", "xlsx"],
-        help="Supports CSV and Excel files",
-        label_visibility="collapsed"
-    )
-    
-    if uploaded_file is not None:
-        try:
-            with st.spinner("Processing file..."):
-                df = load_file(uploaded_file)
-                if df is not None:
-                    st.session_state.df = df
-                    st.session_state.filename = uploaded_file.name
-                    st.session_state.original_df = df.copy() # Keep original for reset
-                    st.success("✅ File loaded successfully!")
-                    
-                    st.markdown(f"""
-                        <div style='background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); 
-                                    padding: 1.25rem; border-radius: 12px; margin-top: 1rem;
-                                    border: 2px solid #dee2e6;'>
-                            <div style='color: #495057; font-weight: 700; margin-bottom: 0.75rem; font-size: 0.85rem;'>
-                                📄 {uploaded_file.name}
-                            </div>
-                            <div style='display: flex; justify-content: space-between; color: #6c757d; font-size: 0.85rem;'>
-                                <div><strong>{df.shape[0]:,}</strong> rows</div>
-                                <div><strong>{df.shape[1]}</strong> cols</div>
-                            </div>
-                        </div>
-                    """, unsafe_allow_html=True)
-        except Exception as e:
-            st.error(f"❌ Error: {str(e)}")
+    if "df" not in st.session_state:
+        st.info("Upload a file in the sidebar to get started.")
+    else:
+        df = st.session_state.df
 
-    st.markdown("<div style='margin: 2rem 0;'></div>", unsafe_allow_html=True)
-    
-    if st.button("🔄 Reset All Data", use_container_width=True):
-        if "df" in st.session_state:
-            del st.session_state.df
-            st.rerun()
+        with st.container():
+            all_columns = list(df.columns)
+            selected_cols = st.multiselect(
+                "Select columns to check for duplicates (leave empty to check all):",
+                options=all_columns,
+                default=[]
+            )
+            subset_to_check = selected_cols if len(selected_cols) > 0 else None
 
-# ==========================================
-# MAIN CONTENT LOGIC
-# ==========================================
+            cleaned_df, log, n_duplicates = remove_duplicates(df, subset_cols=subset_to_check)
 
-# Initialize session state if not exists
-if "df" not in st.session_state:
-    # Landing Page
-    st.markdown("""
-        <div class='hero-section'>
-            <h1 class='hero-title'>DataFix Pro</h1>
-            <p class='hero-subtitle'>Transform messy data into clean, actionable insights</p>
-            <div style='margin-top: 2rem; color: #6c757d; font-size: 1.1rem;'>
-                👆 Upload a file in the sidebar to get started
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.markdown("""
-            <div class='feature-card' style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);'>
-                <div class='feature-icon'>🔍</div>
-                <h3 class='feature-title'>Dedupe Master</h3>
-                <p class='feature-description'>Smart duplicate detection</p>
-            </div>
-        """, unsafe_allow_html=True)
-    
-    with col2:
-        st.markdown("""
-            <div class='feature-card' style='background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);'>
-                <div class='feature-icon'>✨</div>
-                <h3 class='feature-title'>Text Cleaner</h3>
-                <p class='feature-description'>Advanced text processing</p>
-            </div>
-        """, unsafe_allow_html=True)
-    
-    with col3:
-        st.markdown("""
-            <div class='feature-card' style='background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);'>
-                <div class='feature-icon'>🔗</div>
-                <h3 class='feature-title'>File Merger</h3>
-                <p class='feature-description'>Intelligent data merging</p>
-            </div>
-        """, unsafe_allow_html=True)
-    
-    with col4:
-        st.markdown("""
-            <div class='feature-card' style='background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);'>
-                <div class='feature-icon'>📊</div>
-                <h3 class='feature-title'>Data Insights</h3>
-                <p class='feature-description'>Powerful analytics</p>
-            </div>
-        """, unsafe_allow_html=True)
+            # --- SIGNATURE DETAIL: LIVE ROW COUNTER ---
+            st.markdown("<div class='workbench-card'>", unsafe_allow_html=True)
+            col1, col2, col3 = st.columns([2, 0.5, 2])
+            with col1:
+                st.metric("BEFORE", f"{df.shape[0]:,} rows")
+            with col2:
+                st.markdown('<div class="arrow-column">➔</div>', unsafe_allow_html=True)
+            with col3:
+                st.metric("AFTER", f"{cleaned_df.shape[0]:,} rows", delta=f"-{n_duplicates:,} removed", delta_color="inverse")
+            st.markdown("</div>", unsafe_allow_html=True)
 
-else:
-    df = st.session_state.df
-    
-    # ==========================================
-    # STATION 1: DEDUPE MASTER
-    # ==========================================
-    if station == "🔍 Dedupe Master":
-        st.markdown("""
-            <div class='content-card' style='background: linear-gradient(135deg, rgba(102,126,234,0.1) 0%, rgba(118,75,162,0.1) 100%); border: 2px solid rgba(102,126,234,0.3);'>
-                <div style='display: flex; align-items: center; gap: 1rem;'>
-                    <div style='font-size: 4rem;'>🔍</div>
-                    <div>
-                        <h1 style='margin: 0; color: #212529;'>Dedupe Master</h1>
-                        <p style='margin: 0.5rem 0 0 0; color: #6c757d; font-size: 1.1rem;'>
-                            Identify and eliminate duplicate rows with precision
-                        </p>
-                    </div>
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-        
-        # Metrics
-        col1, col2, col3 = st.columns(3)
-        with col1: st.metric("Total Rows", f"{df.shape[0]:,}")
-        with col2: st.metric("Columns", df.shape[1])
-        with col3: st.metric("Current Duplicates", f"{df.duplicated().sum():,}")
-        
-        st.markdown("<div class='section-header'>⚙️ Configuration</div>", unsafe_allow_html=True)
-        
-        with st.expander("Advanced Options", expanded=False):
-            case_insensitive = st.checkbox("Case Insensitive Matching (e.g., 'Apple' == 'apple')")
-            ignore_whitespace = st.checkbox("Ignore Leading/Trailing Whitespace")
-        
-        all_columns = list(df.columns)
-        selected_cols = st.multiselect(
-            "🎯 Select columns to check (Leave empty for all)",
-            options=all_columns,
-            default=[]
+            if "No duplicates" in log:
+                st.success(log)
+            else:
+                st.warning(log)
+
+        # Before / After Data Preview
+        col_before, col_after = st.columns(2)
+
+        with col_before:
+            st.subheader("Raw Data Preview")
+            st.dataframe(df.head(50), use_container_width=True, height=300)
+
+        with col_after:
+            st.subheader("Cleaned Data Preview")
+            st.dataframe(cleaned_df.head(50), use_container_width=True, height=300)
+
+        # Download Button
+        csv_buffer = BytesIO()
+        cleaned_df.to_csv(csv_buffer, index=False)
+        csv_bytes = csv_buffer.getvalue()
+
+        st.download_button(
+            label="📥 Download cleaned file",
+            data=csv_bytes,
+            file_name=f"deduped_{st.session_state.filename.replace('.xlsx', '.csv')}",
+            mime="text/csv",
+            use_container_width=True
         )
-        
-        subset_to_check = selected_cols if selected_cols else None
-        
-        if st.button("🚀 Run Deduplication", type="primary"):
-            with st.spinner("Cleaning data..."):
-                cleaned_df, n_removed = remove_duplicates(
-                    df, 
-                    subset_cols=subset_to_check, 
-                    case_insensitive=case_insensitive, 
-                    ignore_whitespace=ignore_whitespace
-                )
-                
-                st.session_state.df = cleaned_df
-                
-                st.success(f"✅ Removed {n_removed:,} duplicate rows!")
-                st.rerun()
-        
-        # Download Section
-        if n_removed > 0 if 'n_removed' in locals() else False:
-             st.markdown("<div class='section-header'>💾 Export</div>", unsafe_allow_html=True)
-             csv = cleaned_df.to_csv(index=False).encode('utf-8')
-             st.download_button("📥 Download Cleaned CSV", csv, "cleaned_data.csv", "text/csv", use_container_width=True)
 
-    # ==========================================
-    # STATION 2: TEXT CLEANER
-    # ==========================================
-    elif station == "✨ Text Cleaner":
-        st.markdown("""
-            <div class='content-card' style='background: linear-gradient(135deg, rgba(240,147,251,0.1) 0%, rgba(245,87,108,0.1) 100%); border: 2px solid rgba(240,147,251,0.3);'>
-                <div style='display: flex; align-items: center; gap: 1rem;'>
-                    <div style='font-size: 4rem;'>✨</div>
-                    <div>
-                        <h1 style='margin: 0; color: #212529;'>Text Cleaner</h1>
-                        <p style='margin: 0.5rem 0 0 0; color: #6c757d; font-size: 1.1rem;'>
-                            Advanced text processing and formatting tools
-                        </p>
-                    </div>
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
+# ==========================================
+# STATION 2: CLEAN TEXT & DATES
+# ==========================================
+
+elif station == "2. Clean Text & Dates":
+    st.markdown('<div class="station-header"><span>✨</span> Station 2: Clean Text & Dates</div>', unsafe_allow_html=True)
+    
+    if "df" not in st.session_state:
+        st.info("Upload a file in the sidebar to get started.")
+    else:
+        df = st.session_state.df
         
+        # --- Text Cleaning Section ---
+        st.markdown("<div class='workbench-card'>", unsafe_allow_html=True)
+        st.subheader("Text Cleaning")
         text_cols = df.select_dtypes(include=['object']).columns.tolist()
         
         if not text_cols:
             st.warning("No text columns found in this dataset.")
         else:
-            cols_to_clean = st.multiselect("Select columns to clean", text_cols, default=text_cols)
+            cols_to_clean = st.multiselect("Select text columns to clean:", text_cols, default=text_cols)
+            
+            if st.button("Clean Text (Trim, Fix Spaces, Title Case)", use_container_width=True):
+                cleaned_text_df, text_log = clean_text(df, cols_to_clean)
+                st.session_state.df = cleaned_text_df
+                st.success(text_log)
+                st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        # --- Date Cleaning Section ---
+        st.markdown("<div class='workbench-card'>", unsafe_allow_html=True)
+        st.subheader("Date Cleaning")
+        
+        # Let user select columns that might be dates
+        all_cols = list(df.columns)
+        date_cols = st.multiselect("Select columns to parse as dates:", all_cols)
+        dayfirst = st.checkbox("Day-first format (e.g., 31/12/2024 instead of 12/31/2024)")
+        
+        if st.button("Clean Dates (Standardize to YYYY-MM-DD)", use_container_width=True):
+            if date_cols:
+                cleaned_dates_df, date_log = clean_dates(df, date_cols, dayfirst=dayfirst)
+                st.session_state.df = cleaned_dates_df
+                st.success(date_log)
+                st.rerun()
+            else:
+                st.warning("Please select at least one column to clean.")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+# ==========================================
+# STATION 3: MERGE FILES
+# ==========================================
+
+elif station == "3. Merge Files":
+    st.markdown('<div class="station-header"><span>🔗</span> Station 3: Merge Two Files</div>', unsafe_allow_html=True)
+    
+    if "df" not in st.session_state:
+        st.info("Upload your primary file in the sidebar first.")
+    else:
+        df_left = st.session_state.df
+        
+        st.markdown("<div class='workbench-card'>", unsafe_allow_html=True)
+        st.subheader("Primary File (Left)")
+        st.write(f"**{st.session_state.filename}** — {df_left.shape[0]} rows × {df_left.shape[1]} columns")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        # Upload second file
+        st.markdown("<div class='workbench-card'>", unsafe_allow_html=True)
+        st.subheader("Secondary File (Right)")
+        uploaded_merge_file = st.file_uploader("Upload file to merge", type=["csv", "xlsx"], key="merge_file")
+        
+        if uploaded_merge_file is not None:
+            if uploaded_merge_file.name.endswith(".csv"):
+                df_right = pd.read_csv(uploaded_merge_file)
+            else:
+                df_right = pd.read_excel(uploaded_merge_file, engine="openpyxl")
+            
+            st.write(f"**{uploaded_merge_file.name}** — {df_right.shape[0]} rows × {df_right.shape[1]} columns")
+            
+            # Merge options
+            st.markdown("---")
+            st.subheader("Merge Configuration")
+            
+            left_cols = list(df_left.columns)
+            right_cols = list(df_right.columns)
             
             col1, col2 = st.columns(2)
             with col1:
-                st.markdown("**Transformations**")
-                do_trim = st.checkbox("Trim Whitespace", value=True)
-                do_lower = st.checkbox("Convert to Lowercase")
-                do_upper = st.checkbox("Convert to Uppercase")
-                do_title = st.checkbox("Convert to Title Case")
-                remove_special = st.checkbox("Remove Special Characters (Keep A-Z, 0-9)")
-            
+                left_on = st.selectbox("Left Key Column:", left_cols)
             with col2:
-                st.markdown("**Missing Values**")
-                fill_method = st.selectbox("How to handle empty cells?", ["Leave Empty", "Fill with 'N/A'", "Forward Fill", "Backward Fill"])
+                right_on = st.selectbox("Right Key Column:", right_cols)
+                
+            how = st.selectbox("Merge Type:", ["outer", "inner", "left", "right"])
             
-            if st.button("✨ Apply Text Cleaning", type="primary"):
-                with st.spinner("Processing text..."):
-                    temp_df = df.copy()
-                    
-                    for col in cols_to_clean:
-                        if col in temp_df.columns:
-                            # Ensure string type
-                            temp_df[col] = temp_df[col].astype(str)
-                            
-                            if do_trim:
-                                temp_df[col] = temp_df[col].str.strip()
-                            if do_lower:
-                                temp_df[col] = temp_df[col].str.lower()
-                            if do_upper:
-                                temp_df[col] = temp_df[col].str.upper()
-                            if do_title:
-                                temp_df[col] = temp_df[col].str.title()
-                            if remove_special:
-                                temp_df[col] = temp_df[col].apply(lambda x: re.sub(r'[^A-Za-z0-9\s]', '', str(x)))
-                            
-                            # Handle NaN/Empty specifically
-                            if fill_method == "Fill with 'N/A'":
-                                temp_df[col] = temp_df[col].replace('nan', 'N/A').replace('', 'N/A')
-                            elif fill_method == "Forward Fill":
-                                temp_df[col] = temp_df[col].replace('nan', np.nan).ffill()
-                            elif fill_method == "Backward Fill":
-                                temp_df[col] = temp_df[col].replace('nan', np.nan).bfill()
-                    
-                    st.session_state.df = temp_df
-                    st.success("✅ Text cleaning applied successfully!")
-                    st.rerun()
-
-    # ==========================================
-    # STATION 3: FILE MERGER
-    # ==========================================
-    elif station == "🔗 File Merger":
-        st.markdown("""
-            <div class='content-card' style='background: linear-gradient(135deg, rgba(79,172,254,0.1) 0%, rgba(0,242,254,0.1) 100%); border: 2px solid rgba(79,172,254,0.3);'>
-                <div style='display: flex; align-items: center; gap: 1rem;'>
-                    <div style='font-size: 4rem;'>🔗</div>
-                    <div>
-                        <h1 style='margin: 0; color: #212529;'>File Merger</h1>
-                        <p style='margin: 0.5rem 0 0 0; color: #6c757d; font-size: 1.1rem;'>
-                            Intelligently combine multiple datasets
-                        </p>
-                    </div>
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-        
-        st.info(f"📂 Current Base File: **{st.session_state.filename}** ({df.shape[0]:,} rows)")
-        
-        uploaded_merge_file = st.file_uploader("Upload file to merge", type=["csv", "xlsx"], key="merge_file")
-        
-        if uploaded_merge_file:
-            merge_df = load_file(uploaded_merge_file)
-            if merge_df is not None:
-                st.success(f"✅ Loaded: {uploaded_merge_file.name} ({merge_df.shape[0]:,} rows)")
+            if st.button("🔗 Merge Files", use_container_width=True):
+                merged_df, merge_log = merge_files(df_left, df_right, left_on, right_on, how=how)
+                st.session_state.df = merged_df
+                st.success(merge_log)
                 
-                merge_type = st.radio("Merge Strategy", ["Append (Stack Rows)", "Join (Merge Columns)"])
+                # Show unmatched rows stats
+                unmatched = merged_df[merged_df["match_status"] != "Matched"]
+                if not unmatched.empty:
+                    with st.expander("⚠️ View Unmatched Rows"):
+                        st.dataframe(unmatched, use_container_width=True)
                 
-                if merge_type == "Append (Stack Rows)":
-                    # Check columns match
-                    if list(df.columns) == list(merge_df.columns):
-                        if st.button("🔗 Append Data"):
-                            combined_df = pd.concat([df, merge_df], ignore_index=True)
-                            st.session_state.df = combined_df
-                            st.success(f"Merged! New total rows: {combined_df.shape[0]:,}")
-                            st.rerun()
-                    else:
-                        st.error("Columns do not match exactly. Cannot append.")
-                        st.write("Base Columns:", list(df.columns))
-                        st.write("New Columns:", list(merge_df.columns))
+                st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+
+# ==========================================
+# STATION 4: SUMMARY REPORT
+# ==========================================
+
+elif station == "4. Summary Report":
+    st.markdown('<div class="station-header"><span>📊</span> Station 4: Summary Report</div>', unsafe_allow_html=True)
+    
+    if "df" not in st.session_state:
+        st.info("Upload a file in the sidebar to get started.")
+    else:
+        df = st.session_state.df
+        
+        st.markdown("<div class='workbench-card'>", unsafe_allow_html=True)
+        all_cols = list(df.columns)
+        group_col = st.selectbox("Select column to group by:", all_cols)
+        
+        # Auto-detect numeric columns
+        numeric_cols = df.select_dtypes(include='number').columns.drop(group_col, errors='ignore').tolist()
+        
+        if not numeric_cols:
+            st.warning("No numeric columns found to summarize (excluding the group column).")
+        else:
+            selected_numeric = st.multiselect("Select numeric columns to summarize:", numeric_cols, default=numeric_cols)
+            
+            if st.button("Generate Summary Report", use_container_width=True):
+                summary_df, report_log = generate_summary_report(df, group_col, selected_numeric)
+                st.success(report_log)
+                st.dataframe(summary_df, use_container_width=True)
                 
-                elif merge_type == "Join (Merge Columns)":
-                    common_cols = list(set(df.columns) & set(merge_df.columns))
-                    if common_cols:
-                        key_col = st.selectbox("Select Key Column to Join On", common_cols)
-                        join_type = st.selectbox("Join Type", ["inner", "left", "right", "outer"])
-                        
-                        if st.button("🔗 Perform Join"):
-                            try:
-                                merged_df = pd.merge(df, merge_df, on=key_col, how=join_type, suffixes=('_base', '_new'))
-                                st.session_state.df = merged_df
-                                st.success(f"Join successful! New shape: {merged_df.shape}")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Merge error: {e}")
-                    else:
-                        st.error("No common columns found to join on.")
-
-    # ==========================================
-    # STATION 4: DATA INSIGHTS
-    # ==========================================
-    elif station == "📊 Data Insights":
-        st.markdown("""
-            <div class='content-card' style='background: linear-gradient(135deg, rgba(67,233,123,0.1) 0%, rgba(56,249,215,0.1) 100%); border: 2px solid rgba(67,233,123,0.3);'>
-                <div style='display: flex; align-items: center; gap: 1rem;'>
-                    <div style='font-size: 4rem;'>📊</div>
-                    <div>
-                        <h1 style='margin: 0; color: #212529;'>Data Insights</h1>
-                        <p style='margin: 0.5rem 0 0 0; color: #6c757d; font-size: 1.1rem;'>
-                            Comprehensive analysis of your dataset
-                        </p>
-                    </div>
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-        
-        # Top Metrics
-        col1, col2, col3, col4 = st.columns(4)
-        with col1: st.metric("Rows", f"{df.shape[0]:,}")
-        with col2: st.metric("Columns", df.shape[1])
-        with col3: 
-            missing = df.isnull().sum().sum()
-            st.metric("Missing Values", f"{missing:,}")
-        with col4: 
-            mem = df.memory_usage(deep=True).sum() / 1024**2
-            st.metric("Memory", f"{mem:.2f} MB")
-        
-        st.markdown("<div class='section-header'>📋 Column Analysis</div>", unsafe_allow_html=True)
-        
-        # Detailed Analysis Table
-        analysis_data = []
-        for col in df.columns:
-            analysis_data.append({
-                "Column": col,
-                "Type": str(df[col].dtype),
-                "Unique": df[col].nunique(),
-                "Missing": df[col].isnull().sum(),
-                "Missing %": f"{(df[col].isnull().sum() / len(df) * 100):.1f}%"
-            })
-        
-        analysis_df = pd.DataFrame(analysis_data)
-        st.dataframe(analysis_df, use_container_width=True, height=300)
-        
-        st.markdown("<div class='section-header'>👁️ Data Preview</div>", unsafe_allow_html=True)
-        st.dataframe(df.head(10), use_container_width=True)
-        
-        # Download Report
-        csv_report = analysis_df.to_csv(index=False).encode('utf-8')
-        st.download_button("📥 Download Analysis Report", csv_report, "data_report.csv", "text/csv")
-
-    # ==========================================
-    # GLOBAL DOWNLOAD (Always visible if data exists)
-    # ==========================================
-    st.markdown("<div style='margin-top: 4rem; border-top: 1px solid rgba(255,255,255,0.3); padding-top: 2rem;'>", unsafe_allow_html=True)
-    col_d1, col_d2 = st.columns([4, 1])
-    with col_d1:
-        st.markdown("### 💾 Final Export")
-        st.caption("Download your processed data in CSV format.")
-    with col_d2:
-        csv_bytes = st.session_state.df.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="Download CSV",
-            data=csv_bytes,
-            file_name=f"processed_{st.session_state.filename.split('.')[0]}.csv",
-            mime="text/csv",
-            use_container_width=True
-        )
-    st.markdown("</div>", unsafe_allow_html=True)
+                # Download
+                csv_buffer = BytesIO()
+                summary_df.to_csv(csv_buffer, index=False)
+                csv_bytes = csv_buffer.getvalue()
+                
+                st.download_button(
+                    label="📥 Download Summary Report",
+                    data=csv_bytes,
+                    file_name=f"summary_{st.session_state.filename.replace('.xlsx', '.csv')}",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+        st.markdown("</div>", unsafe_allow_html=True)
