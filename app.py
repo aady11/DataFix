@@ -3,108 +3,114 @@ import pandas as pd
 from io import BytesIO
 
 # ==========================================
-# PREMIUM WORKBENCH CSS
+# WARM WORKBENCH CSS
 # ==========================================
 def load_css():
     st.markdown("""
     <style>
-    /* --- Main Workspace Gradient --- */
+    /* --- Main Workspace --- */
     .stApp {
-        background: linear-gradient(180deg, #FAFAF8 0%, #F0EDE8 100%);
+        background-color: #FAF9F6;
     }
     
-    /* Remove default padding for a flush layout */
     .block-container {
         padding-top: 3rem;
         padding-bottom: 2rem;
     }
 
-    /* --- Dark Sidebar Styling --- */
+    /* --- Warm Light Sidebar --- */
     [data-testid="stSidebar"] {
-        background-color: #2C3639 !important;
-        border-right: none !important;
+        background-color: #F0EDE8 !important;
+        border-right: 1px solid #E0DCD5 !important;
+        box-shadow: 2px 0 5px rgba(0,0,0,0.02); /* Very subtle desk edge shadow */
     }
-    /* Force all sidebar text/labels to be light */
-    [data-testid="stSidebar"] * {
-        color: #F0F0F0 !important;
-    }
-    /* Style the file uploader in the dark sidebar */
-    [data-testid="stFileUploader"] {
-        border: 1px dashed #7A9E7E !important;
-        background-color: rgba(122, 158, 126, 0.1) !important;
-        border-radius: 0.5rem !important;
-    }
-
-    /* --- Station Radio Buttons --- */
+    
+    /* --- Station Radio Buttons (Paper Cards) --- */
     .stRadio > div {
         gap: 0.5rem;
     }
     .stRadio label {
-        border: 1px solid transparent;
+        border: 1px solid #E0DCD5;
         border-radius: 0.5rem;
         padding: 0.75rem 1rem;
         transition: all 0.2s ease;
-        color: #A0A0A0 !important;
+        background-color: #FFFFFF;
+        color: #5A5A5A !important;
     }
     .stRadio label:hover {
         border-color: #7A9E7E;
-        background-color: rgba(122, 158, 126, 0.15);
-        color: #FFFFFF !important;
+        background-color: #F4F8F4;
+        color: #2D2D2D !important;
     }
     /* Active station styling */
     .stRadio div[data-baseweb="radio-group"] div[aria-checked="true"] label {
-        background-color: rgba(122, 158, 126, 0.25);
+        background-color: #7A9E7E; /* Muted sage green */
         border-color: #7A9E7E;
         color: #FFFFFF !important;
         font-weight: 600;
+        box-shadow: 0 2px 4px rgba(122, 158, 126, 0.3);
     }
 
-    /* --- Workbench Cards (Metrics & DataFrames) --- */
-    [data-testid="stMetric"], .dataframe-container {
+    /* --- Workbench Metrics (Paper Cards) --- */
+    [data-testid="stMetric"] {
         background-color: #FFFFFF;
-        border: 1px solid #E8E4DE;
+        border: 1px solid #E0DCD5;
         border-radius: 0.75rem;
         padding: 1.25rem;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
     }
 
     /* --- Live Row Counter Typography --- */
     [data-testid="stMetricValue"] {
         font-size: 2.5rem !important;
         font-weight: 800 !important;
-        color: #2C3639 !important;
-        font-family: 'JetBrains Mono', 'Fira Code', monospace !important;
+        color: #2D2D2D !important;
+        font-family: 'JetBrains Mono', monospace !important;
         letter-spacing: -0.02em;
     }
     [data-testid="stMetricLabel"] {
         font-size: 0.85rem !important;
         font-weight: 600 !important;
-        color: #7A9E7E !important;
+        color: #7A9E7E !important; /* Sage green */
         text-transform: uppercase;
         letter-spacing: 0.05em;
-    }
-    [data-testid="stMetricDelta"] {
-        font-size: 1.1rem !important;
-        font-weight: 600 !important;
     }
     [data-testid="stMetricDeltaNegative"] {
         color: #C45B28 !important; /* Clay/rust for attention */
     }
 
-    /* --- Data Table Font --- */
+    /* --- Data Table Styling --- */
     .stDataFrame {
-        font-family: 'JetBrains Mono', 'Fira Code', monospace !important;
+        border: 1px solid #E0DCD5;
+        border-radius: 0.5rem;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
+    }
+    .stDataFrame table {
+        font-family: 'JetBrains Mono', monospace !important;
         font-size: 0.85rem !important;
     }
     
     /* --- Custom Alert Styles --- */
     .stAlert {
         border-radius: 0.5rem;
-        border-left: 4px solid;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-    }
-    .stAlert[data-baseweb="notification"] {
+        border-left: 4px solid #7A9E7E; /* Sage green left border */
         background-color: #FFFFFF !important;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+    }
+    
+    /* --- Download Button Polish --- */
+    .stDownloadButton button {
+        background-color: #7A9E7E;
+        color: #FFFFFF;
+        border-radius: 0.5rem;
+        border: none;
+        padding: 0.75rem 1.5rem;
+        font-weight: 600;
+        transition: all 0.2s ease;
+    }
+    .stDownloadButton button:hover {
+        background-color: #6B8E6F;
+        box-shadow: 0 4px 6px rgba(122, 158, 126, 0.3);
     }
     </style>
     """, unsafe_allow_html=True)
