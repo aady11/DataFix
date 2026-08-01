@@ -3,61 +3,108 @@ import pandas as pd
 from io import BytesIO
 
 # ==========================================
-# CUSTOM CSS — THE WORKBENCH AESTHETIC
+# PREMIUM WORKBENCH CSS
 # ==========================================
 def load_css():
     st.markdown("""
     <style>
-    /* Remove default Streamlit top padding and header */
+    /* --- Main Workspace Gradient --- */
+    .stApp {
+        background: linear-gradient(180deg, #FAFAF8 0%, #F0EDE8 100%);
+    }
+    
+    /* Remove default padding for a flush layout */
     .block-container {
-        padding-top: 2rem;
+        padding-top: 3rem;
         padding-bottom: 2rem;
     }
-    
-    /* Force monospace font on data tables */
-    .stDataFrame {
-        font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace !important;
-        font-size: 0.85rem !important;
-    }
-    
-    /* Clean up the sidebar */
+
+    /* --- Dark Sidebar Styling --- */
     [data-testid="stSidebar"] {
-        border-right: 1px solid #E0DCD5;
+        background-color: #2C3639 !important;
+        border-right: none !important;
     }
-    
-    /* Style the radio buttons to look like station buttons */
+    /* Force all sidebar text/labels to be light */
+    [data-testid="stSidebar"] * {
+        color: #F0F0F0 !important;
+    }
+    /* Style the file uploader in the dark sidebar */
+    [data-testid="stFileUploader"] {
+        border: 1px dashed #7A9E7E !important;
+        background-color: rgba(122, 158, 126, 0.1) !important;
+        border-radius: 0.5rem !important;
+    }
+
+    /* --- Station Radio Buttons --- */
     .stRadio > div {
         gap: 0.5rem;
     }
     .stRadio label {
-        border: 1px solid #E0DCD5;
+        border: 1px solid transparent;
         border-radius: 0.5rem;
         padding: 0.75rem 1rem;
         transition: all 0.2s ease;
+        color: #A0A0A0 !important;
     }
     .stRadio label:hover {
-        border-color: #7A9E7E; /* Sage green */
-        background-color: #F4F8F4;
+        border-color: #7A9E7E;
+        background-color: rgba(122, 158, 126, 0.15);
+        color: #FFFFFF !important;
     }
-    
-    /* Signature metric styling */
+    /* Active station styling */
+    .stRadio div[data-baseweb="radio-group"] div[aria-checked="true"] label {
+        background-color: rgba(122, 158, 126, 0.25);
+        border-color: #7A9E7E;
+        color: #FFFFFF !important;
+        font-weight: 600;
+    }
+
+    /* --- Workbench Cards (Metrics & DataFrames) --- */
+    [data-testid="stMetric"], .dataframe-container {
+        background-color: #FFFFFF;
+        border: 1px solid #E8E4DE;
+        border-radius: 0.75rem;
+        padding: 1.25rem;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+    }
+
+    /* --- Live Row Counter Typography --- */
     [data-testid="stMetricValue"] {
-        font-size: 2rem !important;
-        font-weight: 700 !important;
-        color: #2D2D2D !important;
-        font-family: 'JetBrains Mono', monospace !important;
+        font-size: 2.5rem !important;
+        font-weight: 800 !important;
+        color: #2C3639 !important;
+        font-family: 'JetBrains Mono', 'Fira Code', monospace !important;
+        letter-spacing: -0.02em;
+    }
+    [data-testid="stMetricLabel"] {
+        font-size: 0.85rem !important;
+        font-weight: 600 !important;
+        color: #7A9E7E !important;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
     }
     [data-testid="stMetricDelta"] {
-        font-size: 1rem !important;
+        font-size: 1.1rem !important;
+        font-weight: 600 !important;
     }
     [data-testid="stMetricDeltaNegative"] {
         color: #C45B28 !important; /* Clay/rust for attention */
     }
+
+    /* --- Data Table Font --- */
+    .stDataFrame {
+        font-family: 'JetBrains Mono', 'Fira Code', monospace !important;
+        font-size: 0.85rem !important;
+    }
     
-    /* Custom alert styles */
+    /* --- Custom Alert Styles --- */
     .stAlert {
         border-radius: 0.5rem;
         border-left: 4px solid;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+    .stAlert[data-baseweb="notification"] {
+        background-color: #FFFFFF !important;
     }
     </style>
     """, unsafe_allow_html=True)
